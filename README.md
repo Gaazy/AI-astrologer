@@ -91,7 +91,7 @@ This project relies on the following Python packages:
 *   **[Flask](https://flask.palletsprojects.com/)**: A lightweight WSGI web application framework.
 *   **[python-dateutil](https://pypi.org/project/python-dateutil/)**: Provides powerful extensions for parsing and manipulating dates and times.
 
-## authors--license
+## Authors & License
 **Created by:** sourav mondal
 
 
