@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Astrologer — Friendly Report</title>
+
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:1.5rem;background:#f7f7fb;color:#111}
+    .card{background:white;border-radius:10px;padding:1rem;max-width:760px;margin:1rem auto;box-shadow:0 8px 30px rgba(20,20,40,0.06)}
+    label{display:block;margin-top:.6rem;font-size:.95rem;color:#444}
+    input,textarea{width:100%;padding:.55rem;border-radius:8px;border:1px solid #e4e7ee;margin-top:.3rem;box-sizing:border-box}
+    button{margin-top:.8rem;padding:.6rem 1rem;border-radius:10px;border:0;background:#2b6ef6;color:white;cursor:pointer}
+    .summary{display:flex;gap:1rem;flex-wrap:wrap;margin-top:.8rem}
+    .summary .item{flex:1;min-width:140px;padding:.6rem;border-radius:8px;background:#fbfdff;border:1px solid #eef3ff}
+    #fullText{font-size:1.1rem;color:#333;background:#f0f4f8;padding:.8rem;border-radius:6px;margin-top:1rem}
+    pre.json-view{background:#0f1724;color:#e6eef8;padding:1rem;border-radius:8px;overflow:auto;margin-top:.8rem}
+    .error{color:#b91c1c;background:#fff1f2;padding:.6rem;border-radius:6px;margin-top:.6rem;border:1px solid #fecaca}
+    small.hint{color:#6b7280;display:block;margin-top:.4rem}
+  </style>
+
+  <!-- (optional) pretty-print-json kept but not required -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretty-print-json@3.0/dist/css/pretty-print-json.css">
+  <script src="https://cdn.jsdelivr.net/npm/pretty-print-json@3.0/dist/pretty-print-json.min.js" defer></script>
+</head>
+<body>
+  <div class="card">
+    <h2>AI Astrologer</h2>
+
+    <div>
+      <label>Name<input id="name" placeholder="Your name" /></label>
+      <label>Date of birth<input id="dob" type="date" /></label>
+      <label>Time of birth<input id="tob" type="time" /></label>
+      <label>Place of birth<input id="place" placeholder="City, Country (optional)" /></label>
+      <button id="getReport">Get Astrology Report</button>
+      <small class="hint">Enter name and date of birth at minimum, then click “Get Astrology Report.”</small>
+    </div>
+
+    <div id="reportArea" style="display:none;margin-top:1rem">
+      <h3>Report</h3>
+
+      <div class="summary" id="summaryBlock" aria-live="polite">
+        <!-- Summary items inserted here -->
+      </div>
+
+      <!-- Friendly summary text -->
+      <div id="friendlyText">
+        <h4>Your Astrology Insight</h4>
+        <p id="fullText">Your summary will appear here.</p>
+      </div>
+
+      <!-- JSON debug block intentionally hidden / commented out -->
+      <!--
+      <div id="jsonWrapper">
+        <h4>Full JSON Data (for debugging)</h4>
+        <pre id="jsonViewer" class="json-view"></pre>
+      </div>
+      -->
+
+      <!-- Q&A section -->
+      <div style="margin-top:1rem">
+        <h4>Ask a question</h4>
+        <textarea id="question" rows="3" placeholder="e.g., Will I get a promotion?"></textarea>
+        <button id="askBtn">Ask</button>
+        <h4>Answer</h4>
+        <pre id="answerText" class="json-view">Ask something to get an answer.</pre>
+      </div>
+
+      <div id="errorBox" style="display:none" class="error"></div>
+    </div>
+  </div>
+
+<script>
+/* Safe DOM usage: check elements exist before using them */
+
+const getReportBtn = document.getElementById("getReport");
+const reportArea = document.getElementById("reportArea");
+const summaryBlock = document.getElementById("summaryBlock");
+const fullTextEl = document.getElementById("fullText");
+const answerText = document.getElementById("answerText");
+const errorBox = document.getElementById("errorBox");
+
+// jsonViewer may be null because that block is commented out — handle safely
+const jsonViewer = document.getElementById("jsonViewer"); // likely null if commented out
+
+let lastReport = null;
+
+function titleCase(s){ return (s||'').replace(/\b\w/g,c=>c.toUpperCase()); }
+function showError(msg){ errorBox.style.display="block"; errorBox.textContent=msg; }
+function clearError(){ errorBox.style.display="none"; errorBox.textContent=""; }
+
+function renderSummary(data) {
+  if (!summaryBlock) return;
+  summaryBlock.innerHTML = `
+    <div class="item"><strong>Name</strong><div>${data.name||'—'}</div></div>
+    <div class="item"><strong>Sun sign</strong><div>${titleCase(data.sun_sign)||'—'}</div></div>
+    <div class="item"><strong>Element</strong><div>${data.element||'—'}</div></div>
+    <div class="item"><strong>Mode</strong><div>${data.mode||'—'}</div></div>
+    <div class="item"><strong>Age</strong><div>${(data.age!=null)?data.age:'—'}</div></div>
+  `;
+}
+
+/* renderJson will only run if jsonViewer exists (so it won't throw) */
+function renderJson(data) {
+  if (!jsonViewer) return;                 // safe-guard: do nothing if absent
+  if (typeof prettyPrintJson !== 'undefined' && prettyPrintJson && prettyPrintJson.toHtml) {
+    jsonViewer.innerHTML = prettyPrintJson.toHtml(data, {indent:2, lineNumbers:true});
+  } else {
+    jsonViewer.textContent = JSON.stringify(data, null, 2);
+  }
+}
+
+getReportBtn.addEventListener('click', async () => {
+  clearError();
+  const name = document.getElementById("name").value.trim();
+  const dob = document.getElementById("dob").value;
+  const tob = document.getElementById("tob").value;
+  const place = document.getElementById("place").value.trim();
+
+  if (!name || !dob) { alert("Please enter your name and date of birth."); return; }
+
+  reportArea.style.display = "block";
+
+  // only touch jsonViewer if it exists
+  if (jsonViewer) jsonViewer.textContent = "Loading report...";
+  fullTextEl.textContent = "";
+
+  try {
+    const res = await fetch("/api/astro", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ name, dob, tob, place })
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      showError(`Server error (${res.status}): ${txt}`);
+      if (jsonViewer) jsonViewer.textContent = "No JSON received.";
+      return;
+    }
+
+    const data = await res.json();
+    lastReport = data;
+
+    renderSummary(data);
+
+    // show the human-friendly text from backend
+    fullTextEl.textContent = data.full_text || "No summary available.";
+
+    // optional debug render (safe guard in function)
+    renderJson(data);
+
+    answerText.textContent = "Ask a question about career, love, or health...";
+  } catch (err) {
+    showError("Request failed: " + err);
+    if (jsonViewer) jsonViewer.textContent = "Error loading report.";
+  }
+});
+
+document.getElementById("askBtn").addEventListener('click', async () => {
+  clearError();
+  if (!lastReport) { showError("Please generate your astrology report first."); return; }
+  const q = document.getElementById("question").value.trim();
+  if (!q) { alert("Please type a question."); return; }
+
+  answerText.textContent = "Thinking...";
+  try {
+    const res = await fetch("/api/question", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ question: q })
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      showError(`Server error (${res.status}): ${txt}`);
+      answerText.textContent = "No answer—server issue.";
+      return;
+    }
+
+    const obj = await res.json();
+    answerText.textContent = obj.answer || JSON.stringify(obj, null, 2);
+  } catch (err) {
+    showError("Request failed: " + err);
+    answerText.textContent = "Error retrieving answer.";
+  }
+});
+</script>
+</body>
+</html>
